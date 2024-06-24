@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "polyhedral": {
+      "commandName": "Project",
+      "workingDirectory": "C:\\Users\\Asus\\source\\repos\\polyhedral\\example"
+    }
+  }
+}
