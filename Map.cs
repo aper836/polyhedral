@@ -4,7 +4,7 @@ using System.Diagnostics;
 
 namespace polyhedral;
 
-internal class MapPlane(Plane<double> plane, Vector3D<double> tangent, Vector3D<double> bitangent)
+public class MapPlane(Plane<double> plane, Vector3D<double> tangent, Vector3D<double> bitangent)
 {
     public Plane<double> Plane { get; set; } = plane;
     public Vector3D<double> Tangent => tangent;

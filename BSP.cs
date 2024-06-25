@@ -6,11 +6,13 @@ using System.Diagnostics;
 using System.Formats.Tar;
 using System.Linq;
 using System.Net.Http.Headers;
+using System.Numerics;
 using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 
 namespace polyhedral;
 
@@ -22,9 +24,10 @@ internal class Leaf(ImmutableArray<Polygon> volume) : IBinarySpacePartition
 {
     public bool IsLeaf => true;
 
-    public ImmutableArray<Polygon> Volume => volume;
+    public List<Polygon> FillerFaces { get; set; } = new List<Polygon>();
+    public ImmutableArray<Polygon> SolidFaces => volume;
 
-    public bool IsSolid => Volume.Length == 0;
+    public bool IsSolid => SolidFaces.Length == 0;
 }
 
 internal class Node : IBinarySpacePartition
@@ -133,7 +136,7 @@ internal static class BSP
         {
             if (!leaf.IsSolid)
             {
-                polygons.Add(leaf.Volume.ToList());
+                polygons.Add(leaf.SolidFaces.ToList());
             }      
         }
     }
@@ -174,15 +177,17 @@ internal static class BSP
         }
         bounds.Add(poly);
     }
-    private static void SplitCellUntilPolygon(Polygon polygon, List<Polygon> bounds, List<List<Polygon>> fillerSet, IBinarySpacePartition current)
+    private static void SplitCellUntilPolygon(Polygon polygon, List<Polygon> bounds, List<Polygon> fillerSet, List<Polygon> polygonsToDelete, IBinarySpacePartition current)
     {
 
         if(current is Leaf l)
         {
-            Console.WriteLine($"{bounds.Count}");
-            if (!l.IsSolid)
-                fillerSet.Add(bounds);
+            if (l.IsSolid)
+                return;
 
+            polygonsToDelete.AddRange(l.SolidFaces);
+            fillerSet.AddRange(bounds);
+            l.FillerFaces = bounds;
             return;
         }
 
@@ -231,39 +236,112 @@ internal static class BSP
         {
             case PlaneSide.CoplanarBack:
             case PlaneSide.Back:
-                SplitCellUntilPolygon(polygon, backCell, fillerSet, node.Back);
+                SplitCellUntilPolygon(polygon, backCell, fillerSet, polygonsToDelete, node.Back);
                 break;
 
             case PlaneSide.Front:
             case PlaneSide.CoplanarFront:
-                SplitCellUntilPolygon(polygon, frontCell, fillerSet, node.Front);
+                SplitCellUntilPolygon(polygon, frontCell, fillerSet, polygonsToDelete, node.Front);
                 break;
 
             case PlaneSide.Coplanar:
                 if (Vector3D.Dot(plane.Normal, polygon.Surface.Plane.Normal) > 0)
-                    SplitCellUntilPolygon(polygon, frontCell, fillerSet, node.Front);
+                    SplitCellUntilPolygon(polygon, frontCell, fillerSet, polygonsToDelete, node.Front);
                 else
-                    SplitCellUntilPolygon(polygon, backCell, fillerSet, node.Back);
+                    SplitCellUntilPolygon(polygon, backCell, fillerSet, polygonsToDelete, node.Back);
                 break;
             case PlaneSide.Spanning:
                 var (b, f) = polygon.Split(plane);
-                SplitCellUntilPolygon(b, backCell, fillerSet, node.Back);
-                SplitCellUntilPolygon(f, frontCell, fillerSet, node.Front);
+                SplitCellUntilPolygon(b, backCell, fillerSet, polygonsToDelete, node.Back);
+                SplitCellUntilPolygon(f, frontCell, fillerSet, polygonsToDelete, node.Front);
                 break;
         }
 
 
     }
-    public static List<Polygon> BuildCells(List<Polygon> polygons, Node root)
+    public static void FindFillerAdjacency(IBinarySpacePartition current, Polygon poly, List<Leaf> leaves)
+    {
+        if(current is Leaf l)
+        {
+            if (l.IsSolid)
+                return;
+            leaves.Add(l);
+            return;
+        }
+
+        var node = current as Node;
+        Debug.Assert(node != null);
+
+        switch (poly.Classify(node.Plane))
+        {
+            case PlaneSide.CoplanarBack:
+            case PlaneSide.Back:
+                FindFillerAdjacency(node.Back, poly, leaves);
+                break;
+
+            case PlaneSide.Front:
+            case PlaneSide.CoplanarFront:
+                FindFillerAdjacency(node.Front, poly, leaves);
+                break;
+
+            case PlaneSide.Coplanar:
+                FindFillerAdjacency(node.Front, poly, leaves);
+                FindFillerAdjacency(node.Back, poly, leaves);
+                break;
+            case PlaneSide.Spanning:
+                var (b, f) = poly.Split(node.Plane);
+                FindFillerAdjacency(node.Front, f, leaves);
+                FindFillerAdjacency(node.Back, b, leaves);
+                break;
+        }
+
+    }
+    public static List<Leaf> GatherSector(Leaf targetLeaf, Node root)
+    {
+        var usedPolys = new List<Polygon>();
+        var neighbors = new List<Leaf>();
+        var searchStack = new Stack<Polygon>(targetLeaf.FillerFaces);
+        while (searchStack.Count > 0) 
+        {
+            var poly = searchStack.Pop();
+            var possibleNeighbors = new List<Leaf>();
+            FindFillerAdjacency(root, poly, possibleNeighbors);
+            usedPolys.Add(poly);
+
+            possibleNeighbors.RemoveAll(x => neighbors.Contains(x));
+            neighbors.AddRange(possibleNeighbors);
+
+            var possibleFillers = possibleNeighbors.SelectMany(x => x.FillerFaces).ToList();
+
+            possibleFillers.RemoveAll(x => usedPolys.Contains(x));
+
+            possibleFillers.ForEach(x => searchStack.Push(x));
+
+            Console.WriteLine($"neighbors {neighbors.Count}");
+
+        }
+        return neighbors;
+    }
+    public static List<Polygon> GenerateCells(List<Polygon> polygons, Node root)
     {
         var bounds = BuildFillCell(1024);
         var fillerSet = new List<List<Polygon>>();
-        foreach (var polygon in polygons) 
+        while (polygons.Count > 0) 
         {
-            SplitCellUntilPolygon(polygon, bounds, fillerSet, root);
+            var outBounds = new List<Polygon>();
+            var polygonsToDelete = new List<Polygon>();
+            var poly = polygons[0];
+            SplitCellUntilPolygon(poly, bounds, outBounds, polygonsToDelete, root);
+            polygons.RemoveAll(p => polygonsToDelete.Contains(p));
+            fillerSet.Add(outBounds);
+            
+            Console.WriteLine($"Polygons filled {polygonsToDelete.Count}");
         }
+        var leaves = new List<Leaf>();
+        FindFillerAdjacency(root, fillerSet[0][0], leaves);
+        var sector = GatherSector(leaves[0], root);
         Console.WriteLine($"Cells filled: {fillerSet.Count}");
-        return fillerSet.SelectMany(x => x).ToList();
+        return sector.SelectMany(x => x.FillerFaces).ToList();
     }
 
     private static void PrintJsonRecursive(JsonNode json, Node node)

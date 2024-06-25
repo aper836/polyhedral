@@ -207,7 +207,7 @@ public class App
         BSP.DebugPolygons(node, end);
         var res = end.SelectMany(x => x).ToList();
 
-        var cellM = BSP.BuildCells(res, node);
+        var cellM = BSP.GenerateCells(res, node);
 
         /*
         foreach (var polyhedra in end)
