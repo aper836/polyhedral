@@ -23,6 +23,46 @@ public static class Geometry
 
         return true;
     }
+
+    public static ImmutableArray<int> ComputeSides(IList<Vector3D<double>> points, Plane<double> plane)
+    {
+        int[] sides = { 0, 0, 0 };
+        foreach (var point in points)
+        {
+            sides[(int)ComputeSide(point, plane)]++;
+        }
+        return sides.ToImmutableArray();
+    }
+
+    public static PlaneSide Classify(IList<Vector3D<double>> points, Plane<double> plane)
+    {
+        var sides = ComputeSides(points, plane);
+        if (sides[(int)PlaneSide.Back] == points.Count)
+        {
+            return PlaneSide.Back;
+        }
+        if (sides[(int)PlaneSide.Front] == points.Count)
+        {
+            return PlaneSide.Front;
+        }
+        if (sides[(int)PlaneSide.Coplanar] == points.Count)
+        {
+            return PlaneSide.Coplanar;
+        }
+        if (sides[(int)PlaneSide.Coplanar] > 0 && sides[(int)PlaneSide.Front] > 0)
+        {
+            return PlaneSide.CoplanarFront;
+        }
+        if (sides[(int)PlaneSide.Coplanar] > 0 && sides[(int)PlaneSide.Back] > 0)
+        {
+            return PlaneSide.CoplanarBack;
+        }
+        if (sides[(int)PlaneSide.Back] > 0 && sides[(int)PlaneSide.Front] > 0)
+        {
+            return PlaneSide.Spanning;
+        }
+        throw new NotImplementedException();
+    }
     
     
     public static PlaneSide Classify(Plane<double> plane, IList<Vector3D<double>> points)

@@ -1,0 +1,13 @@
+// Game: Generic
+// Format: Valve
+// entity 0
+{
+"mapversion" "220"
+"classname" "worldspawn"
+"_tb_soft_map_bounds" "none"
+}
+// entity 1
+{
+"classname" "info_player_start"
+"origin" "-96 -224 24"
+}

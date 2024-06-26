@@ -100,7 +100,7 @@ internal static class BSP
         IBinarySpacePartition backNode;
         IBinarySpacePartition frontNode;
 
-        if (back.Count == 0)
+        if (back.Count == 0 || back.All(x => x.Used))
         {
             backNode = new Leaf(ImmutableArray<Polygon>.Empty);
         }

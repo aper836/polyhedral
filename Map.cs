@@ -56,8 +56,16 @@ internal class Map(ImmutableArray<MapEntity> entities)
             }
             else if(str[0] == '"')
             {
-                str = str.Replace("\"", "");
-                var keyvalue = str.Split(" ");
+                var keyvalue = str.Split("\"");
+                var values = new List<string>();
+                foreach(var kvp in keyvalue)
+                {
+                    if (!string.IsNullOrEmpty(kvp) && kvp != " ")
+                    {
+                        values.Add(kvp);
+                    }
+                }
+                keyvalue = values.ToArray();
                 Debug.Assert(keyvalue.Length == 2);
                 dictionary[keyvalue[0]] = keyvalue[1];
             }

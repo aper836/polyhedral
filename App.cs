@@ -184,21 +184,21 @@ public class App
         var map = Map.Read(reader);
 
 
-        List<Polyhedral> list = new();
+        List<Brush> list = new();
         
         foreach(var brush in map.Entities[0].Brushes)
         {
-            list.Add(Polyhedral.CreateFromBrush(brush));
+            list.Add(Brush.CreateFrom(brush));
         }
         
-        Polyhedral.MergePolyhedrals(list);
+        Brush.UnionBrushes(list);
 
         reader.Close();
         file.Close();
 
         var batcher = new PrimitiveBatcher<VertexColor>();
         batcher.EnsureTriangleSpace(2048);
-        var polys = list.SelectMany(x => x.Polygons).ToList();
+        var polys = list.SelectMany(x => x.GetPolygons()).ToList();
         
         var node = BSP.BuildTree(polys);
         BSP.PrintJson(node);
@@ -227,7 +227,7 @@ public class App
             
         }
         */
-        foreach (var poly in cellM)
+        foreach (var poly in polys)
         {
             var color = new Color4b((byte)Random.Shared.Next(255), (byte)Random.Shared.Next(255), (byte)Random.Shared.Next(255));
             var triangles = poly.Triangulate();
