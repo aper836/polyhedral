@@ -43,7 +43,7 @@ internal class Polygon(ImmutableArray<Vector3D<double>> points, MapPlane plane)
             centroid += p;
             i++;
         }
-        return centroid / i;
+        return (centroid / i) + Vector2D<double>.One * 1e-4;
     }
 
     public static Polygon CreatePolygonFromPoints(List<Vector3D<double>> points, MapPlane plane)
@@ -60,11 +60,9 @@ internal class Polygon(ImmutableArray<Vector3D<double>> points, MapPlane plane)
 
             return angle1.CompareTo(angle2);
         });
-        points.Reverse();
 
         return new Polygon(points.ToImmutableArray(), plane);
     }
-
     public List<(Vector3D<float>, Vector3D<float>, Vector3D<float>)> Triangulate()
     {
         var end = new List<(Vector3D<float>, Vector3D<float>, Vector3D<float>)>();

@@ -49,6 +49,10 @@ public static class Geometry
         {
             return PlaneSide.Coplanar;
         }
+        if (sides[(int)PlaneSide.Back] > 0 && sides[(int)PlaneSide.Front] > 0)
+        {
+            return PlaneSide.Spanning;
+        }
         if (sides[(int)PlaneSide.Coplanar] > 0 && sides[(int)PlaneSide.Front] > 0)
         {
             return PlaneSide.CoplanarFront;
@@ -57,10 +61,7 @@ public static class Geometry
         {
             return PlaneSide.CoplanarBack;
         }
-        if (sides[(int)PlaneSide.Back] > 0 && sides[(int)PlaneSide.Front] > 0)
-        {
-            return PlaneSide.Spanning;
-        }
+        
         throw new NotImplementedException();
     }
     
@@ -98,7 +99,7 @@ public static class Geometry
     {
         var d = Plane.Dot(plane, new Vector4D<double>(point, 1)) * -1;
 
-        const double SIDEEPSILON = 1e-6;
+        const double SIDEEPSILON = 1e-3;
         if (d < -SIDEEPSILON)
         {
             return PlaneSide.Back;

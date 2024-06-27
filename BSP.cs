@@ -317,7 +317,6 @@ internal static class BSP
 
             possibleFillers.ForEach(x => searchStack.Push(x));
 
-            Console.WriteLine($"neighbors {neighbors.Count}");
 
         }
         return neighbors;
@@ -331,17 +330,15 @@ internal static class BSP
             var outBounds = new List<Polygon>();
             var polygonsToDelete = new List<Polygon>();
             var poly = polygons[0];
+            polygons.RemoveAt(0);
             SplitCellUntilPolygon(poly, bounds, outBounds, polygonsToDelete, root);
-            polygons.RemoveAll(p => polygonsToDelete.Contains(p));
+            polygons.RemoveAll (p => polygonsToDelete.Contains(p));
             fillerSet.Add(outBounds);
             
             Console.WriteLine($"Polygons filled {polygonsToDelete.Count}");
         }
         var leaves = new List<Leaf>();
-        FindFillerAdjacency(root, fillerSet[0][0], leaves);
-        var sector = GatherSector(leaves[0], root);
-        Console.WriteLine($"Cells filled: {fillerSet.Count}");
-        return sector.SelectMany(x => x.FillerFaces).ToList();
+        return fillerSet[0];
     }
 
     private static void PrintJsonRecursive(JsonNode json, Node node)

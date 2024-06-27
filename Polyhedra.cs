@@ -1,4 +1,5 @@
 ﻿using Silk.NET.Maths;
+using Silk.NET.SDL;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -10,6 +11,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace polyhedral;
 
@@ -62,7 +64,7 @@ internal struct FaceVertex(MapPlane first, MapPlane second, MapPlane third) : IE
         return !a.Equals(b);
     }
 }
-internal class FaceEdge
+internal struct FaceEdge
 {
     public FaceVertex First { get; }
 
@@ -75,6 +77,15 @@ internal class FaceEdge
         First = first;
         Second = second;
         Common = common;
+    }
+    internal static bool TryCreate(FaceVertex first, FaceVertex second, out FaceEdge edge)
+    {
+        var currentWithoutCommon = first.Planes.ToList();
+        var nextWithoutCommon = second.Planes.ToList();
+        var arr = currentWithoutCommon.Intersect(nextWithoutCommon).ToImmutableArray();
+        edge = new FaceEdge(first, second, arr);
+
+        return arr.Length == 2;
     }
     internal bool Same(FaceEdge edge)
     {
@@ -94,12 +105,80 @@ internal class Face
     public MapPlane Surface { get; }
     public ImmutableArray<FaceVertex> OrderedPoints { get; } = ImmutableArray<FaceVertex>.Empty;
     public ImmutableArray<FaceEdge> OrderedEdges { get; } = ImmutableArray<FaceEdge>.Empty;
+    internal static Face Make(MapPlane plane, List<FaceVertex> vertices)
+    {
+        var orderedVertices = new List<FaceVertex>();
+
+        var vtx = vertices[0];
+        vertices[0] = default;
+
+        while (vtx != default)
+        {
+            orderedVertices.Add(vtx);
+
+            var noMore = false;
+
+            for (var i = 0; i < vertices.Count; i++)
+            {
+                if (vertices[i] == default)
+                    continue;
+
+                if (FaceEdge.TryCreate(vtx, vertices[i], out var _))
+                {
+                    vtx = vertices[i];
+                    vertices[i] = default;
+                    noMore = true;
+                    break;
+                }
+            }
+            if (!noMore)
+                vtx = default;
+
+        }
+        
+        var orderedEdges = new List<FaceEdge>();
+        for (var i = 0; i < orderedVertices.Count; i++)
+        {
+            var cur = orderedVertices[i];
+            var next = orderedVertices[(i + 1) % orderedVertices.Count];
+
+            var res = FaceEdge.TryCreate(cur, next, out var e);
+            Debug.Assert(res == true);
+            orderedEdges.Add(e);
+        }
+
+
+
+        Debug.Assert(orderedEdges.Count > 2);
+
+        var first = orderedVertices[0].GetPoint();
+        var second = orderedVertices[1].GetPoint();
+        var third = orderedVertices[2].GetPoint();
+
+        var cross = Vector3D.Cross(first - second, third - second);
+        var dot = Vector3D.Dot(cross, plane.Plane.Normal);
+
+        if (dot < 0)
+        {
+            orderedEdges.Reverse();
+            orderedVertices.Reverse();
+        }
+
+
+        return new Face(orderedVertices.ToImmutableArray(), orderedEdges.ToImmutableArray(), plane);
+    }
+
 
     // split without raycasting edge per edge solves most issues with degeneracies...
     public (Face, Face) Split(MapPlane splitter)
     {
         var backFace = new List<FaceVertex>();
         var frontFace = new List<FaceVertex>();
+        Console.WriteLine($"splitter plane {splitter.Plane}");
+        if(splitter.Plane.Normal.Y == 0.8d)
+        {
+            Console.WriteLine("aca");
+        }
         foreach (var edge in OrderedEdges) 
         {
             var sideFirst = Geometry.ComputeSide(edge.First.GetPoint(), splitter.Plane);
@@ -107,6 +186,7 @@ internal class Face
 
             if(sideFirst != sideSecond)
             {
+                
                 Console.WriteLine($"{sideFirst} == {sideSecond}");
                 if (!Geometry.GetIntersection(edge.Common[0].Plane, edge.Common[1].Plane, splitter.Plane, out Vector3D<double> _))
                     Console.WriteLine("should not happen");
@@ -122,23 +202,17 @@ internal class Face
             {
                 frontFace.Add(edge.First);
             }
-            if(sideFirst == PlaneSide.Coplanar)
-            {
-                frontFace.Add(edge.First);
-                backFace.Add(edge.First);
-            }
+            
         }
-        return (Brush.BuildFace(Surface, backFace), Brush.BuildFace(Surface, frontFace));
+        return (Make(Surface, backFace), Make(Surface, frontFace));
     }
 }
 
-internal class Brush(ImmutableArray<Face> faces, ImmutableArray<FaceVertex> points, Box3D<double> bounds)
+internal class Brush(ImmutableArray<Face> faces, Box3D<double> bounds)
 {
-    public ImmutableArray<FaceVertex> Vertices => points;
-
     public ImmutableArray<Face> Faces => faces;
 
-    public ImmutableArray<MapPlane> Volume => points.SelectMany(x => x.Planes).Distinct().ToImmutableArray();
+    public ImmutableArray<MapPlane> Volume => faces.Select(x => x.Surface).Distinct().ToImmutableArray();
 
     public Box3D<double> Bounds => bounds;
     
@@ -163,6 +237,7 @@ internal class Brush(ImmutableArray<Face> faces, ImmutableArray<FaceVertex> poin
         
         var plane = volume[idx];
         var points = face.OrderedPoints.Select(x => x.GetPoint()).Distinct().ToList();
+        
         var classification = Geometry.Classify(points, plane.Plane);
         switch (classification)
         {
@@ -174,7 +249,7 @@ internal class Brush(ImmutableArray<Face> faces, ImmutableArray<FaceVertex> poin
             case PlaneSide.CoplanarFront:
                 return [face];
             case PlaneSide.Coplanar:
-
+                Console.WriteLine("coplanar rr");
                 if (Vector3D.Dot(plane.Plane.Normal, face.Surface.Plane.Normal) > 0)
                 {
                     if(!keepShared)
@@ -208,8 +283,7 @@ internal class Brush(ImmutableArray<Face> faces, ImmutableArray<FaceVertex> poin
     }
     private static Brush CreateFromFaces(ImmutableArray<Face> faces, Box3D<double> bounds)
     {
-        var points = faces.SelectMany(x => x.OrderedPoints).Distinct().ToImmutableArray();
-        return new Brush(faces, points, bounds);
+        return new Brush(faces, bounds);
     }
     // construct all faces lying on a plane
     public static void UnionBrushes(List<Brush> polyhedrals)
@@ -219,7 +293,7 @@ internal class Brush(ImmutableArray<Face> faces, ImmutableArray<FaceVertex> poin
         foreach(var polyhedral in polyhedrals)
         {
             var keepShared = false;
-            var faces = polyhedral.Faces;
+            var faces = polyhedral.Faces.ToList();
             var bounds = polyhedral.Bounds;
             foreach(var otherBrush in polyhedrals)
             {
@@ -235,11 +309,11 @@ internal class Brush(ImmutableArray<Face> faces, ImmutableArray<FaceVertex> poin
                 {
                     pieces.AddRange(Clip(f, keepShared, shape, 0));
                 }
-                faces = pieces.ToImmutableArray();
+                faces = pieces;
             }
-            if(faces.Length > 0)
+            if(faces.Count > 0)
             {
-                res.Add(CreateFromFaces(faces, bounds));
+                res.Add(CreateFromFaces(faces.ToImmutableArray(), bounds));
             }
         }
 
@@ -272,47 +346,12 @@ internal class Brush(ImmutableArray<Face> faces, ImmutableArray<FaceVertex> poin
         var poly = new List<Polygon>();
         foreach(var face in Faces)
         {
-            poly.Add(Polygon.CreatePolygonFromPoints(face.OrderedPoints.Select(p => p.GetPoint()).ToList(), face.Surface));
+            poly.Add(new Polygon(face.OrderedPoints.Select(x => x.GetPoint()).ToImmutableArray(), face.Surface));
         }
         return poly;
     }
 
-    internal static Face BuildFace(MapPlane plane, List<FaceVertex> vertices)
-    {
-        for (var i = 1; i < vertices.Count; i++)
-        {
-            var before = vertices[i - 1].GetPoint();
-            var mid = vertices[i].GetPoint();
-            var next = vertices[(i + 1) % vertices.Count].GetPoint();
-
-            var beforeMid = before - mid;
-            var nextMid = next - mid;
-
-            var crossProd = Vector3D.Cross(beforeMid, nextMid);
-
-            if(Vector3D.Dot(crossProd, plane.Plane.Normal) < 0)
-            {
-                (vertices[i], vertices[(i + 1) % vertices.Count]) = (vertices[(i + 1) % vertices.Count], vertices[i]);
-            }
-        }
-        var orderedEdges = new List<FaceEdge>();
-        for (var i = 0; i < vertices.Count; i++)
-        {
-            var current = vertices[i];
-            var next = vertices[(i + 1) % vertices.Count];
-
-            var currentWithoutCommon = current.Planes.ToList();
-            var nextWithoutCommon = next.Planes.ToList();
-            var arr = currentWithoutCommon.Intersect(nextWithoutCommon).ToImmutableArray();
-
-            Debug.Assert(arr.Length == 2);
-
-            orderedEdges.Add(new FaceEdge(current, next, arr));
-        }
-
-        return new Face(vertices.ToImmutableArray(), orderedEdges.ToImmutableArray(), plane);
-    }
-
+    
     internal static Brush CreateFrom(MapBrush brush)
     {
         var planes = brush.Planes;
@@ -347,9 +386,9 @@ internal class Brush(ImmutableArray<Face> faces, ImmutableArray<FaceVertex> poin
         foreach(var pl in planes)
         {
             var points = GetPointsOnPlane(poly, pl);
-            faces.Add(BuildFace(pl, points));
+            faces.Add(Face.Make(pl, points));
         }
         
-        return new Brush(faces.ToImmutableArray(), poly.ToImmutableArray(), new Box3D<double>(min, max));
+        return new Brush(faces.ToImmutableArray(), new Box3D<double>(min, max));
     }
 }
